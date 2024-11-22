@@ -52,7 +52,9 @@ public class Control : MonoBehaviour {
 	public float audioLength = 0f; // Automatically determined audio length
 	public double globalDSPStartTime = 0;
 
-	private Dictionary<string, string> effectInstrument = new Dictionary<string, string>()
+	private bool waitingForWildColor = false;
+
+	private Dictionary<string, string> effectToInstrument = new Dictionary<string, string>()
 	{
 		{"Reverb", null},
 		{"Chorus", null},
@@ -64,6 +66,14 @@ public class Control : MonoBehaviour {
 		{"Green", -1},
 		{"Blue", -1},
 		{"Yellow", -1}
+	};
+
+	private Dictionary<string, string> colorToInstrument = new Dictionary<string, string>
+	{
+		{ "Red", "Melody" },
+		{ "Green", "Chord" },
+		{ "Blue", "Bass" },
+		{ "Yellow", "Drum" }
 	};
 
 	private bool isMajorScale = true;
@@ -205,13 +215,28 @@ public class Control : MonoBehaviour {
 	}
 
 	void Update() { //this runs the players turns
-		bool win = updateCardsLeft ();
-		if (win)
+		if (waitingForWildColor) // Pause the game if waiting for Wild Card color selection
 			return;
+
+		bool win = updateCardsLeft();
+		if (win) {
+			SetMasterPitch(1f);
+			return;
+		}
 		if (timerStarted)
 		{
 			audioTimer = (float)(AudioSettings.dspTime - globalDSPStartTime) % audioLength;
 		}
+
+		bool shouldRaisePitch = players.Any(player => player.getCardsLeft() < 3);
+		if (shouldRaisePitch)
+		{
+			SetMasterPitch(1.1667f); // Raise the pitch
+		}
+		else {
+			SetMasterPitch(1f); // Reset to normal pitch
+		}
+
 		if (players [where] is HumanPlayer) {
 			if (players [where].skipStatus) {
 				players [where].skipStatus = false;
@@ -260,6 +285,7 @@ public class Control : MonoBehaviour {
 			
 	}
 	public void startWild(string name) { //this starts the color chooser for the player to choose a color after playing a  wild
+		waitingForWildColor = true;
 		for (int i = 0; i < 4; i++) {
 			colors [i].SetActive (true);
 			addWildListeners (i, name);
@@ -280,6 +306,7 @@ public class Control : MonoBehaviour {
 				x.GetComponent<Button>().onClick.RemoveAllListeners();
 			}
 			colorText.SetActive (false);
+			waitingForWildColor = false;
 			this.enabled=true;
 		});
 	}
@@ -347,8 +374,12 @@ public class Control : MonoBehaviour {
 				AddEffectToColor(cardColor, "Chorus");
 				draw (2, players [who]);
 				break;
+			case 13:
+				AddLowPassFilter(cardColor);
+				break;
 			case 14:
 				AddEffectToColor(cardColor, "Flanger");
+				AddLowPassFilter(cardColor);
 				draw (4, players [who]);
 				break;
 		}
@@ -607,16 +638,16 @@ public class Control : MonoBehaviour {
 		if (parameterName != null)
 		{
 			SetLevel(parameterName, 0f); // Set send level to 0 dB for reverb
-			effectInstrument[effect] = parameterName; // Track the active reverb instrument
+			effectToInstrument[effect] = parameterName; // Track the active reverb instrument
 		}
 	}
 
 	private void ResetEffect(string effect)
 	{
-		if (effectInstrument.ContainsKey(effect) && effectInstrument[effect] != null)
+		if (effectToInstrument.ContainsKey(effect) && effectToInstrument[effect] != null)
 		{
-			SetLevel(effectInstrument[effect], -80f); // Reset effect (set send level to -80 dB)
-			effectInstrument[effect] = null;
+			SetLevel(effectToInstrument[effect], -80f); // Reset effect (set send level to -80 dB)
+			effectToInstrument[effect] = null;
 		}
 	}
 
@@ -625,6 +656,7 @@ public class Control : MonoBehaviour {
 		ResetEffect("Reverb");
 		ResetEffect("Chorus");
 		ResetEffect("Flanger");
+		ResetLowPassFilter();
 	}
 
 	public void SetLevel(string parameterName, float value)
@@ -633,6 +665,41 @@ public class Control : MonoBehaviour {
 		if (mixer != null)
 		{
 			mixer.SetFloat(parameterName, value);
+		}
+	}
+
+	private void AddLowPassFilter(string excludedColor)
+	{
+		foreach (string color in colorToInstrument.Keys)
+		{
+			if (color != excludedColor)
+			{
+				string parameterName = $"{colorToInstrument[color]}_LP"; // Low-pass filter parameter name
+				SetLevel(parameterName, 800f); // Set the cutoff frequency to 800 Hz
+				effectToInstrument["LowPass_" + color] = parameterName; // Track the active low-pass effect
+			}
+		}
+	}
+
+	private void ResetLowPassFilter()
+	{
+		var keys = new List<string>(effectToInstrument.Keys);
+		foreach (var effect in keys)
+		{
+			if (effect.StartsWith("LowPass_") && effectToInstrument[effect] != null)
+			{
+				SetLevel(effectToInstrument[effect], 22000f); // Reset cutoff frequency to 22,000 Hz
+				effectToInstrument.Remove(effect);
+			}
+		}
+	}
+
+	public void SetMasterPitch(float pitchValue)
+	{
+		AudioMixer mixer = Resources.Load<AudioMixer>("AudioMixer"); // Ensure the mixer is in the Resources folder
+		if (mixer != null)
+		{
+			mixer.SetFloat("Master_Pitch", pitchValue);
 		}
 	}
 }

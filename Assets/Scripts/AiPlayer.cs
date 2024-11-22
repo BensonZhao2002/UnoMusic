@@ -139,6 +139,7 @@ public class AiPlayer : MonoBehaviour, PlayerInterface {
 		}
 		else if (specNumb == 13)
 		{
+			cont.specialCardPlay(this, 13);
 			cont.recieveText($"{name} played a wild card, Color: {colorToPlay}");
 			playedCard.changeColor(colorToPlay);
 			cont.enabled = true;

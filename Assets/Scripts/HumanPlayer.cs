@@ -88,6 +88,8 @@ public class HumanPlayer : MonoBehaviour, PlayerInterface {
 			cont.updateDiscPile(playedCard);
 			handList.RemoveAt(where);
 			cont.startWild(name);
+			if (specNumb == 13)
+				cont.specialCardPlay(this, 13);
 			if (specNumb == 14)
 				cont.specialCardPlay(this, 14);
 		}
