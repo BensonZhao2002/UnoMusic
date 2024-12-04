@@ -85,6 +85,7 @@ public class AiPlayer : MonoBehaviour, PlayerInterface {
 		else
 		{
 			GameObject.Find("Control").GetComponent<Control>().draw(1, this);
+			GameObject.Find("Control").GetComponent<Control>().PlayDrawSound();
 			drew = true;
 		}
 
@@ -155,7 +156,7 @@ public class AiPlayer : MonoBehaviour, PlayerInterface {
 		// Play card audio using saved data
 		if (toneIndex >= 0 && toneIndex < 10)
 		{
-			cont.StartAudioTimeline(null);
+			//cont.StartAudioTimeline(null);
 			cont.PlayCardAudio(color, toneIndex);
 			cont.SyncAllAudioSources();
 		}

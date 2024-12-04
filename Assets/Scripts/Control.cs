@@ -42,14 +42,10 @@ public class Control : MonoBehaviour {
 	public AudioSource bassSource;
 	public AudioSource drumSource;
 
-	private const int defaultMelodyIndex = 1;
-	private const int defaultChordPatternIndex = 1;
-	private const int defaultBasslineIndex = 1;
-	private const int defaultDrumRhythmIndex = 1;
-
 	public float audioTimer = 0f; // Tracks elapsed time since the first audio started
 	private bool timerStarted = false; // Ensures timer starts with the first audio
 	public float audioLength = 0f; // Automatically determined audio length
+	public float originalAudioLength = 0f;
 	public double globalDSPStartTime = 0;
 
 	private bool waitingForWildColor = false;
@@ -76,17 +72,20 @@ public class Control : MonoBehaviour {
 		{ "Yellow", "Drum" }
 	};
 
+	private Dictionary<string, int> audioGroupIndices = new Dictionary<string, int>();
+
 	private bool isMajorScale = true;
 
 	public float aiWaitTime = 2.0f;
 
 	void Start () { //this does all the setup. Makes the human and ai players. sets the deck and gets the game ready
+		InitializeRandomAudioIndices();
 		discard.Clear ();
 		deck.Clear ();
 
 		players.Add (new HumanPlayer ("You"));
 		for (int i = 0; i < numbOfAI; i++) {
-			players.Add (new AiPlayer ("AI "+(i+1)));
+			players.Add (new AiPlayer ("Player "+(i+1)));
 		}
 
 		for (int i = 0; i < players.Count - 1; i++) {
@@ -161,7 +160,13 @@ public class Control : MonoBehaviour {
 			if (firstClip != null)
 			{
 				audioLength = firstClip.length;
+				originalAudioLength = firstClip.length;
 				//Debug.Log($"Audio length set to: {audioLength} seconds");
+			}
+			else if (firstClip != null && audioLength == 0f)
+			{
+				audioLength = firstClip.length;
+				originalAudioLength = firstClip.length;
 			}
 		}
 	}
@@ -225,7 +230,8 @@ public class Control : MonoBehaviour {
 		}
 		if (timerStarted)
 		{
-			audioTimer = (float)(AudioSettings.dspTime - globalDSPStartTime) % audioLength;
+			audioTimer = (float)((AudioSettings.dspTime - globalDSPStartTime)) % audioLength;
+			audioTimer = Mathf.Clamp(audioTimer, 0, audioLength - 0.01f);
 		}
 
 		bool shouldRaisePitch = players.Any(player => player.getCardsLeft() < 3);
@@ -252,6 +258,7 @@ public class Control : MonoBehaviour {
 			deckGO.GetComponent<Button> ().onClick.RemoveAllListeners ();
 			deckGO.GetComponent<Button> ().onClick.AddListener (() => {
 				draw (1, temp);
+				PlayDrawSound();
 				((HumanPlayer)temp).recieveDrawOnTurn();
 			});
 			where+=reverse?-1:1;
@@ -284,6 +291,7 @@ public class Control : MonoBehaviour {
 			where = players.Count - 1;
 			
 	}
+
 	public void startWild(string name) { //this starts the color chooser for the player to choose a color after playing a  wild
 		waitingForWildColor = true;
 		for (int i = 0; i < 4; i++) {
@@ -292,6 +300,7 @@ public class Control : MonoBehaviour {
 		}
 		colorText.SetActive (true);
 	}
+
 	public void addWildListeners(int i, string name) { //this is ran from the start wild. It sets each color option as a button and sets the onclick events
 		colors [i].GetComponent<Button> ().onClick.AddListener (() => {
 			discard[discard.Count-1].changeColor(colorsMatch[i]);
@@ -310,6 +319,7 @@ public class Control : MonoBehaviour {
 			this.enabled=true;
 		});
 	}
+
 	public void draw(int amount, PlayerInterface who) { //gives cards to the players. Players can ask to draw or draw will actrivate from special cards
 		if (deck.Count < amount) {
 			resetDeck ();
@@ -319,6 +329,7 @@ public class Control : MonoBehaviour {
 			deck.RemoveAt (0);
 		}
 	}
+
 	public void resetDeck() { //this resets the deck when all of the cards run out
 		print ("reseting");
 		foreach (Card x in discard) {
@@ -332,6 +343,7 @@ public class Control : MonoBehaviour {
 		discard.Clear ();
 		discard.Add (last);
 	}
+
 	public void specialCardPlay(PlayerInterface player, int cardNumb) { //takes care of all special cards played
 		int who = players.FindIndex (e=>e.Equals(player)) + (reverse?-1:1);
 		if (who >= players.Count)
@@ -452,22 +464,23 @@ public class Control : MonoBehaviour {
 		AudioSource targetSource = null;
 
 		string scale = isMajorScale ? "maj" : "min";
+		int groupIndex = audioGroupIndices[colorToInstrument[color]];
 		switch (color)
 		{
 			case "Red": // Melody
-				filePath = $"Audio/Melody/Melody_{toneIndex}_{scale}_{defaultMelodyIndex}";
+				filePath = $"Audio/Melody/Melody_{toneIndex}_{scale}_{groupIndex}";
 				targetSource = melodySource;
 				break;
 			case "Green": // Chord
-				filePath = $"Audio/Chord/Chord {toneIndex}_{defaultMelodyIndex}_{scale}_{defaultChordPatternIndex}";
+				filePath = $"Audio/Chord/Chord {toneIndex}_{audioGroupIndices["Melody"]}_{scale}_{groupIndex}";
 				targetSource = chordSource;
 				break;
 			case "Blue": // Bass
-				filePath = $"Audio/Bass/bass {toneIndex}_{defaultMelodyIndex}_{scale}_{defaultBasslineIndex}";
+				filePath = $"Audio/Bass/bass {toneIndex}_{audioGroupIndices["Melody"]}_{scale}_{groupIndex}";
 				targetSource = bassSource;
 				break;
 			case "Yellow": // Drum
-				filePath = $"Audio/Drum/drum {toneIndex}_{defaultDrumRhythmIndex}";
+				filePath = $"Audio/Drum/drum {toneIndex}_{groupIndex}";
 				targetSource = drumSource;
 				break;
 			default:
@@ -477,15 +490,18 @@ public class Control : MonoBehaviour {
 		if (clip != null)
 		{
 
-			// 初始化全局计时器（如果未启动）
 			if (!timerStarted)
 			{
 				StartAudioTimeline(clip);
 			}
 
-			targetSource.Stop();
-			targetSource.clip = clip;
-			targetSource.time = audioTimer;
+			if  (targetSource.clip != clip)
+			{
+				targetSource.Stop();
+				targetSource.clip = clip;
+			}
+			
+			targetSource.time = Mathf.Clamp(audioTimer, 0, clip.length - 0.01f);
 			targetSource.Play();
 		}
 	}
@@ -493,9 +509,8 @@ public class Control : MonoBehaviour {
 	public void SyncAllAudioSources()
 	{
 		float syncTime = audioTimer; // Get the current global timeline time
-		double dspTime = AudioSettings.dspTime; // Unity's high-precision time
+		//double dspTime = AudioSettings.dspTime; // Unity's high-precision time
 
-		// 为所有音轨设置时间并播放
 
 		if (melodySource.clip != null)
 		{
@@ -533,6 +548,7 @@ public class Control : MonoBehaviour {
 		bassSource.clip = null;
 		drumSource.clip = null;
 
+		ResetEffects();
 		audioTimer = 0f;
 		globalDSPStartTime = 0f;
 
@@ -567,7 +583,6 @@ public class Control : MonoBehaviour {
 
 	private IEnumerator CrossfadeAudio(AudioSource oldSource, AudioSource newSource, AudioClip newClip, float duration)
 	{
-		// 停止旧音轨，并逐渐降低音量
 		if (oldSource != null && oldSource.isPlaying)
 		{
 			for (float t = 0; t < duration; t += Time.deltaTime)
@@ -576,17 +591,15 @@ public class Control : MonoBehaviour {
 				yield return null;
 			}
 			oldSource.Stop();
-			oldSource.volume = 1f; // 重置音量
+			oldSource.volume = 1f;
 		}
 
-		// 设置新音轨的播放进度与全局时间同步
 		if (newClip != null)
 		{
 			newSource.clip = newClip;
-			newSource.time = audioTimer; // 设置播放位置为全局计时器时间
+			newSource.time = audioTimer;
 			newSource.Play();
 
-			// 逐渐提高新音轨音量
 			for (float t = 0; t < duration; t += Time.deltaTime)
 			{
 				newSource.volume = Mathf.Lerp(0f, 1f, t / duration);
@@ -612,12 +625,13 @@ public class Control : MonoBehaviour {
 		string scale = isMajorScale ? "maj" : "min";
 		string filePath = null;
 
+		int groupIndex = audioGroupIndices[colorToInstrument[color]];
 		switch (color)
 		{
-			case "Red": filePath = $"Audio/Melody/Melody_{toneIndex}_{scale}_{defaultMelodyIndex}"; break;
-			case "Green": filePath = $"Audio/Chord/Chord {toneIndex}_{defaultMelodyIndex}_{scale}_{defaultChordPatternIndex}"; break;
-			case "Blue": filePath = $"Audio/Bass/bass {toneIndex}_{defaultMelodyIndex}_{scale}_{defaultBasslineIndex}"; break;
-			case "Yellow": filePath = $"Audio/Drum/drum {toneIndex}_{defaultDrumRhythmIndex}"; break;
+			case "Red": filePath = $"Audio/Melody/Melody_{toneIndex}_{scale}_{groupIndex}"; break;
+			case "Green": filePath = $"Audio/Chord/Chord {toneIndex}_{audioGroupIndices["Melody"]}_{scale}_{groupIndex}"; break;
+			case "Blue": filePath = $"Audio/Bass/bass {toneIndex}_{audioGroupIndices["Melody"]}_{scale}_{groupIndex}"; break;
+			case "Yellow": filePath = $"Audio/Drum/drum {toneIndex}_{groupIndex}"; break;
 		}
 
 		return Resources.Load<AudioClip>(filePath);
@@ -700,6 +714,206 @@ public class Control : MonoBehaviour {
 		if (mixer != null)
 		{
 			mixer.SetFloat("Master_Pitch", pitchValue);
+
+			if (pitchValue != 0){
+				audioLength = originalAudioLength / pitchValue;
+			}
+			
 		}
+	}
+
+	private void InitializeRandomAudioIndices()
+	{
+		audioGroupIndices["Melody"] = Random.Range(1, 3);
+		audioGroupIndices["Chord"] = Random.Range(1, 3);
+		audioGroupIndices["Bass"] = Random.Range(1, 3);
+		audioGroupIndices["Drum"] = Random.Range(1, 3);
+	}
+
+	public void PlayDrawSound()
+	{
+		ChuckSubInstance chuck = GetComponent<ChuckSubInstance>();
+
+		string chuckCode1 = @"
+			// quarter note duration
+			0.2615::second => dur R;
+			// detune for pitch (Bb slightly sharper)
+			0 => float TUNE;
+			// set attack envelope
+			1 => int USE_ENV;
+
+			// patch
+			HevyMetl h[3];
+			// high pass (for echoes)
+			HPF hpf[3];
+			// reverb
+			NRev r => dac; 
+			.3 => dac.gain;
+			0.2 => r.mix; // no reverb mix
+			// delay
+			Delay d => r;
+			d => Gain feedback => d;
+			R => d.max => d.delay;
+			0.3 => d.gain;
+			0.15 => feedback.gain;
+
+			// FM operator envelope indices
+			[31,31,31,31] @=> int attacks[];
+			[31,31,31,31] @=> int decays[];
+			[15,15,15,10] @=> int sustains[];
+			[31,31,31,31] @=> int releases[];
+
+			// connect and configure each HevyMetl instance
+			for (int i; i < 3; i++) {
+				h[i] => r;         // connect to reverb
+				h[i] => hpf[i] => d; // connect to delay
+				600 => hpf[i].freq; // high pass frequency
+				0.0 => h[i].lfoDepth;
+				
+				if (USE_ENV) {
+					for (0 => int op; op < 4; op++) {
+						h[i].opADSR(op, 
+						h[i].getFMTableTime(attacks[op]),
+						h[i].getFMTableTime(decays[op]),
+						h[i].getFMTableSusLevel(sustains[op]),
+						h[i].getFMTableTime(releases[op]));
+					}
+				}
+			}
+
+			// play a single sound with fade-out
+			fun void playSingleSound(int a, int b, int c, float vel, dur D) {
+				// set the pitches
+				Std.mtof(a + TUNE) => h[0].freq;
+				Std.mtof(b + TUNE) => h[1].freq;
+				Std.mtof(c + TUNE) => h[2].freq;
+				
+				// note on
+				for (0 => int i; i < 3; i++) {
+					vel => h[i].noteOn;
+				}
+				
+				// sustain the sound for most of the duration
+				0.7 * D => now;
+				
+				// fade out gradually
+				0.8 => float fadeGain;
+				0.1::second => dur fadeStep;
+				
+				while (fadeGain > 0.08) {
+					for (0 => int i; i < 3; i++) {
+						fadeGain => h[i].noteOn; // gradually reduce volume
+					}
+					fadeGain * 0.9 => fadeGain; // decrease gain (no -=)
+					fadeStep => now;
+				}
+				
+				// completely stop the sound
+				for (0 => int i; i < 3; i++) {
+					0.0 => h[i].noteOn;
+				}
+				
+				// let the sound ring slightly
+				0.2 * D => now;
+			}
+
+			// Play one single chord (e.g., Bb power chord)
+			playSingleSound(70, 77, 70 + 12, 0.8, R);
+		";
+
+		string chuckCode2 =@"
+			//Wurley
+
+			Wurley voc => JCRev r => HPF hpf => Delay d => dac;
+
+			0.3 => r.mix;
+			1.0 => r.gain;
+
+			600 => hpf.freq;
+
+
+			0.8 => d.gain;
+			d.max(0.15::second);
+			d.delay(0.15::second); 
+
+			2.9 => voc.gain;
+
+			fun void playWurleyChord(int a, float vel, dur D) {
+
+				Std.mtof(a) => voc.freq;
+				vel => voc.noteOn;
+
+				(D - 0.3::second) => now;
+
+				0.8 => float fadeGain;
+				0.1::second => dur fadeStep;
+				for (fadeGain => float fade; fade > 0.1; fade * 0.9 => fade) {
+					fade => voc.gain;
+					fadeStep => now;
+				}
+
+				0.0 => voc.gain;
+				0.3::second => now;
+			}
+
+			playWurleyChord(70, 0.7, 2.2615::second);
+		";
+
+		string chuckCode3 = @"
+			//HevyMetl Trumpet
+
+			HevyMetl t => NRev r => dac;
+
+			0.3 => r.mix;
+			1.0 => r.gain;
+
+			1 => t.gain;
+
+			[1,6,6,1] @=> int waveForms[];
+			[99,85,74,99] @=> int opGains[];
+			[1.0,1.0,2.9,1.0] @=> float ratios[];
+			[15,14,15,15] @=> int attacks[];
+			[31,20,26,14] @=> int decays[];
+			[15,10,13,15] @=> int sustains[];
+			[10,10,10,10] @=> int releases[];
+
+			for (int op; op < 4; op++) {
+				t.opWave(op, waveForms[op]);
+				t.opGain(op, t.getFMTableGain(opGains[op]));
+				t.opADSR(op, t.getFMTableTime(attacks[op]),
+				t.getFMTableTime(decays[op]),
+				t.getFMTableSusLevel(sustains[op]),
+				t.getFMTableTime(releases[op]));
+				t.opRatio(op, ratios[op]);
+			}
+			t.op4Feedback(0.5);
+
+			0.005 => t.lfoDepth;
+
+			fun void playHevyMetlChord(int a, float vel) {
+				
+				Std.mtof(a) => t.freq;
+				vel => t.noteOn;
+
+
+				0.8 => float fadeGain;
+				0.1::second => dur fadeStep;
+				for (fadeGain => float fade; fade > 0.1; fade * 0.9 => fade) {
+					fade => t.noteOn;
+					fadeStep => now;
+				}
+
+				0.0 => t.noteOn;
+				0.3::second => now;
+			}
+
+			playHevyMetlChord(70, 0.7);
+		";
+
+		string[] chuckCodes = { chuckCode1, chuckCode2, chuckCode3 };
+    	int randomIndex = Random.Range(0, chuckCodes.Length);
+
+		chuck.RunCode(chuckCodes[randomIndex]);
+
 	}
 }

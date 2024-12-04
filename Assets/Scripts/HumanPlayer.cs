@@ -125,7 +125,7 @@ public class HumanPlayer : MonoBehaviour, PlayerInterface {
 		string color = playedCard.getColor();
 		if (toneIndex >= 0 && toneIndex < 10)
 		{
-			cont.StartAudioTimeline(null);
+			//cont.StartAudioTimeline(null);
 			cont.PlayCardAudio(color, toneIndex);
 			cont.SyncAllAudioSources();
 		}
